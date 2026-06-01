@@ -1,8 +1,6 @@
 {
-  "name": "Remix: Sports Admin Panel",
+  "name": "Sports Admin Panel",
   "description": "Admin panel to manage live sports events and categories JSON data to GitHub.",
   "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

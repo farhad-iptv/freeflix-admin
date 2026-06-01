@@ -80,7 +80,7 @@ export default function EventsPage() {
       setEditingEvent({ 
         id: Date.now().toString(), matchName: '', sportType: 'Football', league: '', 
         homeTeamName: '', homeTeamLogo: '', awayTeamName: '', awayTeamLogo: '', 
-        isLive: false, isHot: false, startTime: '12:00:00', link: '', 
+        isLive: false, isHot: false, startTime: '', link: '', 
         streams: [{ name: 'Main Stream', url: '', isPrimary: true }] 
       });
     }
@@ -131,28 +131,28 @@ export default function EventsPage() {
   if (!settings?.token) return <div className="text-slate-500">Please configure your GitHub settings first.</div>;
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+    <div className="flex flex-col h-full space-y-6 md:space-y-8">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Events</h1>
-          <p className="text-slate-500 text-sm mt-1">Manage live sports events and streams</p>
+          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Events</h1>
+          <p className="text-slate-500 mt-1">Manage live sports events and streams</p>
         </div>
-        <div className="flex flex-wrap gap-2 sm:gap-3 items-center">
+        <div className="flex flex-wrap md:flex-nowrap gap-3 items-center w-full md:w-auto">
           {saveMessage && (
-            <span className={`text-sm font-medium px-3 py-1.5 rounded-md ${saveMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+            <span className={`text-sm font-medium px-4 py-2 rounded-xl flex-1 md:flex-none text-center ${saveMessage.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
               {saveMessage.text}
             </span>
           )}
-          <button onClick={loadData} disabled={loading} className="flex items-center gap-2 px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50">
+          <button onClick={loadData} disabled={loading} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-5 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50 shadow-sm transition-all">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Reload
           </button>
-          <button onClick={saveToGithub} disabled={saving} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+          <button onClick={saveToGithub} disabled={saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shadow-sm shadow-blue-600/20 transition-all">
             <CloudDownload className="w-4 h-4" /> {saving ? 'Pushing...' : 'Push to GitHub'}
           </button>
         </div>
       </div>
 
-      <div className="bg-white border text-sm border-slate-200 rounded-xl overflow-hidden shadow-sm flex-1 flex flex-col">
+      <div className="bg-white border text-sm border-slate-200 rounded-2xl overflow-hidden shadow-sm flex-1 flex flex-col">
           <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
             <span className="font-medium text-slate-700">{events.length} Events Loaded</span>
             <button onClick={() => handleOpenModal()} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white rounded-md hover:bg-slate-800 transition-colors">
@@ -198,7 +198,7 @@ export default function EventsPage() {
                     </td>
                     <td className="px-6 py-4 text-slate-500">{ev.streams.length} stream(s)</td>
                     <td className="px-6 py-4 text-right">
-                       <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                       <div className="flex justify-end gap-2 transition-opacity">
                          <button onClick={() => handleOpenModal(ev)} className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded"><Pencil className="w-4 h-4"/></button>
                          <button onClick={() => handleDelete(ev.id)} className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4"/></button>
                        </div>
@@ -242,26 +242,19 @@ export default function EventsPage() {
              <div className="overflow-y-auto p-6 flex-1">
                <form id="event-form" onSubmit={handleSaveEvent} className="space-y-6">
                   {/* Basic Info */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
                      <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Match Name</label>
                         <input type="text" value={editingEvent.matchName} onChange={(e) => setEditingEvent({...editingEvent, matchName: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm" required placeholder="e.g. PSG vs Arsenal" />
                      </div>
-                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                     <div className="grid grid-cols-2 gap-4">
                          <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Sport Type</label>
                             <input type="text" value={editingEvent.sportType} onChange={(e) => setEditingEvent({...editingEvent, sportType: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm" required />
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                               {Array.from(new Set(events.map(e => e.sportType).filter(Boolean))).slice(0, 5).map(type => (
-                                 <button type="button" key={type} onClick={() => setEditingEvent({...editingEvent, sportType: type})} className="px-2 py-0.5 bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-600 rounded text-xs border border-slate-200 transition-colors">
-                                   {type}
-                                 </button>
-                               ))}
-                            </div>
                          </div>
                          <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Start Time</label>
-                            <input type="time" step="1" value={editingEvent.startTime} onChange={(e) => setEditingEvent({...editingEvent, startTime: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm" required />
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Date & Time</label>
+                            <input type="text" value={editingEvent.startTime} onChange={(e) => setEditingEvent({...editingEvent, startTime: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm" required placeholder="09:00 PM 01/06/2026" />
                          </div>
                      </div>
                      <div className="col-span-2">
@@ -270,7 +263,7 @@ export default function EventsPage() {
                      </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 border-t border-slate-100 pt-6">
+                  <div className="grid grid-cols-2 gap-8 border-t border-slate-100 pt-6">
                      {/* Home Team */}
                      <div className="space-y-4">
                         <h4 className="font-medium text-slate-900 border-b pb-2">Home Team</h4>
@@ -315,15 +308,13 @@ export default function EventsPage() {
                      </div>
                      {editingEvent.streams.map((stream, idx) => (
                        <div key={idx} className="flex flex-col gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                            <input type="text" placeholder="Stream Name" value={stream.name} onChange={(e) => handleStreamChange(idx, 'name', e.target.value)} className="w-full sm:w-1/3 px-3 py-1.5 border border-slate-300 rounded text-sm"/>
-                            <input type="url" placeholder="Stream URL (.m3u8, .mp4)" value={stream.url} onChange={(e) => handleStreamChange(idx, 'url', e.target.value)} className="w-full sm:w-2/3 px-3 py-1.5 border border-slate-300 rounded text-sm"/>
-                            <div className="flex items-center justify-between w-full sm:w-auto">
-                              <label className="flex items-center gap-1 text-sm whitespace-nowrap px-2">
-                                 <input type="radio" name="primary_stream" checked={stream.isPrimary} onChange={(e) => handleStreamChange(idx, 'isPrimary', e.target.checked)} className="text-blue-600"/> Main
-                              </label>
-                              <button type="button" onClick={() => removeStream(idx)} className="text-slate-400 hover:text-red-500" disabled={editingEvent.streams.length <= 1}><MinusCircle className="w-5 h-5"/></button>
-                            </div>
+                          <div className="flex items-center gap-3">
+                            <input type="text" placeholder="Stream Name" value={stream.name} onChange={(e) => handleStreamChange(idx, 'name', e.target.value)} className="w-1/3 px-3 py-1.5 border border-slate-300 rounded text-sm"/>
+                            <input type="url" placeholder="Stream URL (.m3u8, .mp4)" value={stream.url} onChange={(e) => handleStreamChange(idx, 'url', e.target.value)} className="w-2/3 px-3 py-1.5 border border-slate-300 rounded text-sm"/>
+                            <label className="flex items-center gap-1 text-sm whitespace-nowrap px-2">
+                               <input type="radio" name="primary_stream" checked={stream.isPrimary} onChange={(e) => handleStreamChange(idx, 'isPrimary', e.target.checked)} className="text-blue-600"/> Main
+                            </label>
+                            <button type="button" onClick={() => removeStream(idx)} className="text-slate-400 hover:text-red-500" disabled={editingEvent.streams.length <= 1}><MinusCircle className="w-5 h-5"/></button>
                           </div>
                           <div className="flex justify-end">
                              <button type="button" onClick={() => setSelectorStreamIndex(idx)} className="text-xs font-medium text-slate-600 bg-white border border-slate-300 px-2 py-1 rounded hover:bg-slate-100 flex items-center gap-1.5 shadow-sm">

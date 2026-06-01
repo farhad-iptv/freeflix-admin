@@ -32,27 +32,27 @@ export default function SettingsPage() {
       <h1 className="text-3xl font-bold text-slate-900 mb-2">GitHub Config</h1>
       <p className="text-slate-600 mb-8">Configure your GitHub repository access to read and write your JSON data files directly.</p>
       
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
         <form onSubmit={handleSave} className="space-y-6">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Personal Access Token</label>
-            <input type="password" name="token" value={formData.token} onChange={handleChange} required
-              className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" 
-              placeholder="ghp_xxxxxxxxxxxx" />
+              <input type="password" name="token" value={formData.token} onChange={handleChange} required
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500 transition-colors" 
+                placeholder="ghp_xxxxxxxxxxxx" />
             <p className="mt-1 text-xs text-slate-500">Must have repo read/write access.</p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Owner (Username)</label>
               <input type="text" name="owner" value={formData.owner} onChange={handleChange} required
-                className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" 
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500 transition-colors" 
                 placeholder="e.g. torvalds" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Repository Name</label>
               <input type="text" name="repo" value={formData.repo} onChange={handleChange} required
-                className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" 
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500 transition-colors" 
                 placeholder="e.g. sports-app-data" />
             </div>
           </div>
@@ -60,19 +60,19 @@ export default function SettingsPage() {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Branch</label>
             <input type="text" name="branch" value={formData.branch} onChange={handleChange} required
-              className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" />
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500 transition-colors" />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Categories File Path</label>
               <input type="text" name="categoriesPath" value={formData.categoriesPath} onChange={handleChange} required
-                className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" />
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500 transition-colors" />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Events File Path</label>
               <input type="text" name="eventsPath" value={formData.eventsPath} onChange={handleChange} required
-                className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" />
+                className="w-full px-4 py-2.5 border border-slate-200 rounded-xl shadow-sm focus:ring-blue-500 focus:border-blue-500 transition-colors" />
             </div>
           </div>
 
@@ -82,7 +82,7 @@ export default function SettingsPage() {
             </div>
           )}
 
-          <button type="submit" className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-md font-medium transition-colors">
+          <button type="submit" className="flex items-center justify-center w-full sm:w-auto gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 text-sm rounded-xl font-medium transition-all shadow-sm shadow-blue-600/20">
             <Save className="w-4 h-4" /> Save Configuration
           </button>
         </form>

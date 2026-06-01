@@ -76,8 +76,8 @@ export default function ChannelSelectorModal({
           </button>
         </div>
         
-        <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row gap-4 bg-slate-50 shrink-0">
-           <div className="w-full sm:w-1/3">
+        <div className="p-4 border-b border-slate-100 flex gap-4 bg-slate-50 shrink-0">
+           <div className="w-1/3">
              <label className="block text-xs font-medium text-slate-500 mb-1 uppercase tracking-wider">Select Category</label>
              <select 
                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
@@ -93,7 +93,7 @@ export default function ChannelSelectorModal({
                ))}
              </select>
            </div>
-           <div className="w-full sm:w-2/3">
+           <div className="w-2/3">
              <label className="block text-xs font-medium text-slate-500 mb-1 uppercase tracking-wider">Search Channel</label>
              <div className="relative">
                <input 
