@@ -26,6 +26,12 @@ export default function EventsPage() {
 
   const formatStartTime = (isoString: string) => {
     if (!isoString) return "";
+    
+    // Avoid double-parsing local formats which causes month and day to swap
+    if (isoString.includes('/') || /^\d{2}:\d{2} (AM|PM) \d{2}\/\d{2}\/\d{4}$/.test(isoString)) {
+        return isoString;
+    }
+
     const date = new Date(isoString);
     if (isNaN(date.getTime())) return isoString;
 
@@ -55,11 +61,7 @@ export default function EventsPage() {
 
       if (resEvents) {
         const parsed = JSON.parse(resEvents.content);
-        const formattedEvents = (Array.isArray(parsed) ? parsed : []).map((ev: any) => ({
-          ...ev,
-          startTime: ev.startTime ? formatStartTime(ev.startTime) : ev.startTime
-        }));
-        setEvents(formattedEvents);
+        setEvents(Array.isArray(parsed) ? parsed : []);
         setFileSha(resEvents.sha);
       } else {
         setEvents([]);
