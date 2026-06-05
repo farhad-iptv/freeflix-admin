@@ -124,11 +124,11 @@ export default function EventsPage() {
     }
   };
 
-  const fetchFootballEvents = async () => {
+  const fetchJSONEvents = async (url: string, typeName: string) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('https://raw.githubusercontent.com/srhady/crichd-speical-live-event/refs/heads/main/Footy_Live.json');
+      const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to fetch external JSON");
       const data = await res.json();
       
@@ -142,12 +142,12 @@ export default function EventsPage() {
         }
       });
       
-      setImportRawData(matchesData);
+      setImportRawData(matchesData.map((m: any) => ({...m, _defaultSport: typeName})));
       setImportGroups(Array.from(groups).sort());
       setSelectedImportGroups([]);
       setIsImportModalOpen(true);
     } catch (err: any) {
-      setError("Fetch failed: " + err.message);
+      setError(`Fetch ${typeName} failed: ` + err.message);
     } finally {
       setLoading(false);
     }
@@ -159,7 +159,7 @@ export default function EventsPage() {
     const potentialNewEvents = toImport.map((item: any, idx: number) => ({
       id: `imported-${Date.now()}-${idx}`,
       matchName: item["match name"] || "Unknown Match",
-      sportType: item["Category"] || "Football",
+      sportType: item._defaultSport === "Cricket" ? "Cricket" : "Football",
       league: item["Tour/Group name"] || "",
       homeTeamName: item["Team 1 Name"] || "",
       homeTeamLogo: item["Team 1 Logo"] || "",
@@ -267,10 +267,13 @@ export default function EventsPage() {
           <button onClick={loadData} disabled={loading} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-5 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50 shadow-sm transition-all">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Reload
           </button>
-          <button onClick={fetchFootballEvents} disabled={loading || saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 shadow-sm transition-all">
-            <Download className="w-4 h-4" /> Import Football
+          <button onClick={() => fetchJSONEvents('https://raw.githubusercontent.com/srhady/crichd-speical-live-event/refs/heads/main/Footy_Live.json', 'Football')} disabled={loading || saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 shadow-sm transition-all whitespace-nowrap">
+            <Download className="w-4 h-4" /> Football
           </button>
-          <button onClick={saveToGithub} disabled={saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shadow-sm shadow-blue-600/20 transition-all">
+          <button onClick={() => fetchJSONEvents('https://raw.githubusercontent.com/farhad-iptv/crichd-event-scraper/refs/heads/main/matches.json', 'Cricket')} disabled={loading || saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 shadow-sm transition-all whitespace-nowrap">
+            <Download className="w-4 h-4" /> Cricket
+          </button>
+          <button onClick={saveToGithub} disabled={saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shadow-sm shadow-blue-600/20 transition-all whitespace-nowrap">
             <CloudDownload className="w-4 h-4" /> {saving ? 'Pushing...' : 'Push to GitHub'}
           </button>
         </div>
@@ -417,7 +420,10 @@ export default function EventsPage() {
                      <div className="grid grid-cols-2 gap-4">
                          <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Sport Type</label>
-                            <input type="text" value={editingEvent.sportType} onChange={(e) => setEditingEvent({...editingEvent, sportType: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm" required />
+                            <select value={editingEvent.sportType} onChange={(e) => setEditingEvent({...editingEvent, sportType: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm" required>
+                              <option value="Football">Football</option>
+                              <option value="Cricket">Cricket</option>
+                            </select>
                          </div>
                          <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Date & Time</label>
