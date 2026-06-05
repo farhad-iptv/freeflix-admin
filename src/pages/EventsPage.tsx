@@ -19,6 +19,11 @@ export default function EventsPage() {
   const [saveMessage, setSaveMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
   const [selectorStreamIndex, setSelectorStreamIndex] = useState<number | null>(null);
 
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importGroups, setImportGroups] = useState<string[]>([]);
+  const [selectedImportGroups, setSelectedImportGroups] = useState<string[]>([]);
+  const [importRawData, setImportRawData] = useState<any[]>([]);
+
   const formatStartTime = (isoString: string) => {
     if (!isoString) return "";
     const date = new Date(isoString);
@@ -75,12 +80,32 @@ export default function EventsPage() {
     loadData();
   }, [settings]);
 
+  const parseTime = (timeStr: string) => {
+    if (!timeStr) return 0;
+    const match = timeStr.match(/(\d{2}):(\d{2}) (AM|PM) (\d{2})\/(\d{2})\/(\d{4})/);
+    if (match) {
+      let [_, h, m, ampm, D, M, Y] = match;
+      let hr = parseInt(h);
+      if (ampm === 'PM' && hr < 12) hr += 12;
+      if (ampm === 'AM' && hr === 12) hr = 0;
+      return new Date(parseInt(Y), parseInt(M)-1, parseInt(D), hr, parseInt(m)).getTime();
+    }
+    return 0; 
+  };
+
   const saveToGithub = async () => {
     if (!settings) return;
     setSaving(true);
     setError(null);
     try {
-      const content = JSON.stringify(events, null, 2);
+      const sortedEvents = [...events].sort((a, b) => {
+         if (a.isLive && !b.isLive) return -1;
+         if (!a.isLive && b.isLive) return 1;
+         return parseTime(a.startTime) - parseTime(b.startTime);
+      });
+      setEvents(sortedEvents);
+
+      const content = JSON.stringify(sortedEvents, null, 2);
       const res = await commitGithubFile(
         settings.token, settings.owner, settings.repo, settings.eventsPath, settings.branch,
         content, fileSha, "Update live events via Admin Panel"
@@ -97,7 +122,7 @@ export default function EventsPage() {
     }
   };
 
-  const importFootballEvents = async () => {
+  const fetchFootballEvents = async () => {
     setLoading(true);
     setError(null);
     try {
@@ -108,38 +133,63 @@ export default function EventsPage() {
       const root = Array.isArray(data) ? data[0] : data;
       const matchesData = root?.matches || [];
       
-      const newEvents = matchesData.map((item: any, idx: number) => ({
-        id: `imported-${Date.now()}-${idx}`,
-        matchName: item["match name"] || "Unknown Match",
-        sportType: item["Category"] || "Football",
-        league: item["Tour/Group name"] || "",
-        homeTeamName: item["Team 1 Name"] || "",
-        homeTeamLogo: item["Team 1 Logo"] || "",
-        awayTeamName: item["Team 2 Name"] || "",
-        awayTeamLogo: item["Team 2 Logo"] || "",
-        isLive: false,
-        isHot: false,
-        startTime: formatStartTime(item["Start time"] || item["Time"] || item["status"] || ""),
-        link: "",
-        streams: [{
-          name: "Main Stream",
-          url: "https://github.com/farhad-iptv/app-link/raw/refs/heads/main/FREEFLIX-extended.mp4",
-          isPrimary: true
-        }]
-      }));
-
-      const allEvents = [...newEvents, ...events];
-      setEvents(allEvents);
+      const groups = new Set<string>();
+      matchesData.forEach((m: any) => {
+        if (m["Tour/Group name"]) {
+          groups.add(m["Tour/Group name"]);
+        }
+      });
       
-      setSaveMessage({ type: 'success', text: `Imported ${newEvents.length} events successfully. Click Push to GitHub to save.` });
-      setTimeout(() => setSaveMessage(null), 5000);
+      setImportRawData(matchesData);
+      setImportGroups(Array.from(groups).sort());
+      setSelectedImportGroups([]);
+      setIsImportModalOpen(true);
     } catch (err: any) {
-      setError("Import failed: " + err.message);
-      setSaveMessage({ type: 'error', text: "Import failed: " + err.message });
-      setTimeout(() => setSaveMessage(null), 5000);
+      setError("Fetch failed: " + err.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const confirmImport = () => {
+    const toImport = importRawData.filter(item => selectedImportGroups.includes(item["Tour/Group name"]));
+    
+    const potentialNewEvents = toImport.map((item: any, idx: number) => ({
+      id: `imported-${Date.now()}-${idx}`,
+      matchName: item["match name"] || "Unknown Match",
+      sportType: item["Category"] || "Football",
+      league: item["Tour/Group name"] || "",
+      homeTeamName: item["Team 1 Name"] || "",
+      homeTeamLogo: item["Team 1 Logo"] || "",
+      awayTeamName: item["Team 2 Name"] || "",
+      awayTeamLogo: item["Team 2 Logo"] || "",
+      isLive: item["Status"]?.toLowerCase() === "live" || false,
+      isHot: false,
+      startTime: formatStartTime(item["Start time"] || item["Time"] || item["status"] || ""),
+      link: "",
+      streams: [{
+        name: "Main Stream",
+        url: "https://github.com/farhad-iptv/app-link/raw/refs/heads/main/FREEFLIX-extended.mp4",
+        isPrimary: true
+      }]
+    }));
+
+    const actuallyNewEvents = potentialNewEvents.filter(newEv => 
+      !events.some(existingEv => 
+        existingEv.matchName === newEv.matchName && 
+        existingEv.league === newEv.league
+      )
+    );
+
+    setEvents(prev => [...actuallyNewEvents, ...prev]);
+    setIsImportModalOpen(false);
+    
+    if (actuallyNewEvents.length > 0) {
+      setSaveMessage({ type: 'success', text: `Imported ${actuallyNewEvents.length} new events successfully. (${potentialNewEvents.length - actuallyNewEvents.length} duplicates skipped). Click Push to GitHub to save.` });
+    } else {
+      setSaveMessage({ type: 'error', text: `No new events imported. All ${potentialNewEvents.length} selected events already exist.` });
+    }
+    setTimeout(() => setSaveMessage(null), 5000);
   };
 
   const handleOpenModal = (ev?: Event) => {
@@ -215,7 +265,7 @@ export default function EventsPage() {
           <button onClick={loadData} disabled={loading} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-5 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50 shadow-sm transition-all">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Reload
           </button>
-          <button onClick={importFootballEvents} disabled={loading || saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 shadow-sm transition-all">
+          <button onClick={fetchFootballEvents} disabled={loading || saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 shadow-sm transition-all">
             <Download className="w-4 h-4" /> Import Football
           </button>
           <button onClick={saveToGithub} disabled={saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shadow-sm shadow-blue-600/20 transition-all">
@@ -286,6 +336,49 @@ export default function EventsPage() {
             </table>
           </div>
       </div>
+
+      {isImportModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl max-h-[80vh] flex flex-col">
+            <div className="flex justify-between items-center mb-4 shrink-0">
+               <h3 className="font-semibold text-lg">Select Leagues to Import</h3>
+               <button onClick={() => setIsImportModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+            </div>
+            
+            <div className="overflow-y-auto flex-1 mb-6 border border-slate-200 rounded-lg divide-y divide-slate-100">
+              {importGroups.map(group => (
+                <label key={group} className="flex items-center gap-3 p-3 hover:bg-slate-50 cursor-pointer">
+                  <input type="checkbox" 
+                     className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
+                     checked={selectedImportGroups.includes(group)}
+                     onChange={(e) => {
+                       if (e.target.checked) setSelectedImportGroups(prev => [...prev, group]);
+                       else setSelectedImportGroups(prev => prev.filter(g => g !== group));
+                     }}
+                  />
+                  <span className="text-sm font-medium text-slate-700">{group}</span>
+                  <span className="ml-auto text-xs text-slate-400">
+                     {importRawData.filter(m => m["Tour/Group name"] === group).length} matches
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            <div className="flex justify-between items-center shrink-0">
+               <button 
+                  onClick={() => setSelectedImportGroups(importGroups.length === selectedImportGroups.length ? [] : [...importGroups])}
+                  className="text-sm text-blue-600 font-medium hover:underline cursor-pointer"
+               >
+                 {importGroups.length === selectedImportGroups.length ? 'Deselect All' : 'Select All'}
+               </button>
+               <div className="flex gap-3">
+                 <button onClick={() => setIsImportModalOpen(false)} className="px-4 py-2 border border-slate-300 text-slate-700 rounded-md hover:bg-slate-50 font-medium">Cancel</button>
+                 <button onClick={confirmImport} disabled={selectedImportGroups.length === 0} className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 font-medium disabled:opacity-50">Confirm ({selectedImportGroups.length})</button>
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {itemToDelete && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
