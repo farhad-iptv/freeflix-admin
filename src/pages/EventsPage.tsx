@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Event, Stream, Category } from '../types';
 import { useAppContext } from '../context/AppContext';
 import { fetchGithubFile, commitGithubFile } from '../lib/github';
-import { Plus, Pencil, Trash2, CloudDownload, RefreshCw, X, Radio, Clock, MinusCircle, ListVideo } from 'lucide-react';
+import { Plus, Pencil, Trash2, CloudDownload, RefreshCw, X, Radio, Clock, MinusCircle, ListVideo, Download } from 'lucide-react';
 import ChannelSelectorModal from '../components/ChannelSelectorModal';
 
 export default function EventsPage() {
@@ -19,6 +19,25 @@ export default function EventsPage() {
   const [saveMessage, setSaveMessage] = useState<{type: 'success'|'error', text: string} | null>(null);
   const [selectorStreamIndex, setSelectorStreamIndex] = useState<number | null>(null);
 
+  const formatStartTime = (isoString: string) => {
+    if (!isoString) return "";
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return isoString;
+
+    let hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const strHours = String(hours).padStart(2, '0');
+
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+
+    return `${strHours}:${minutes} ${ampm} ${day}/${month}/${year}`;
+  };
+
   const loadData = async () => {
     if (!settings?.token || !settings?.owner || !settings?.repo) return;
     setLoading(true);
@@ -30,7 +49,12 @@ export default function EventsPage() {
       ]);
 
       if (resEvents) {
-        setEvents(JSON.parse(resEvents.content));
+        const parsed = JSON.parse(resEvents.content);
+        const formattedEvents = (Array.isArray(parsed) ? parsed : []).map((ev: any) => ({
+          ...ev,
+          startTime: ev.startTime ? formatStartTime(ev.startTime) : ev.startTime
+        }));
+        setEvents(formattedEvents);
         setFileSha(resEvents.sha);
       } else {
         setEvents([]);
@@ -70,6 +94,51 @@ export default function EventsPage() {
       setTimeout(() => setSaveMessage(null), 3000);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const importFootballEvents = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('https://raw.githubusercontent.com/srhady/crichd-speical-live-event/refs/heads/main/Footy_Live.json');
+      if (!res.ok) throw new Error("Failed to fetch external JSON");
+      const data = await res.json();
+      
+      const root = Array.isArray(data) ? data[0] : data;
+      const matchesData = root?.matches || [];
+      
+      const newEvents = matchesData.map((item: any, idx: number) => ({
+        id: `imported-${Date.now()}-${idx}`,
+        matchName: item["match name"] || "Unknown Match",
+        sportType: item["Category"] || "Football",
+        league: item["Tour/Group name"] || "",
+        homeTeamName: item["Team 1 Name"] || "",
+        homeTeamLogo: item["Team 1 Logo"] || "",
+        awayTeamName: item["Team 2 Name"] || "",
+        awayTeamLogo: item["Team 2 Logo"] || "",
+        isLive: false,
+        isHot: false,
+        startTime: formatStartTime(item["Start time"] || item["Time"] || item["status"] || ""),
+        link: "",
+        streams: [{
+          name: "Main Stream",
+          url: "https://github.com/farhad-iptv/app-link/raw/refs/heads/main/FREEFLIX-extended.mp4",
+          isPrimary: true
+        }]
+      }));
+
+      const allEvents = [...newEvents, ...events];
+      setEvents(allEvents);
+      
+      setSaveMessage({ type: 'success', text: `Imported ${newEvents.length} events successfully. Click Push to GitHub to save.` });
+      setTimeout(() => setSaveMessage(null), 5000);
+    } catch (err: any) {
+      setError("Import failed: " + err.message);
+      setSaveMessage({ type: 'error', text: "Import failed: " + err.message });
+      setTimeout(() => setSaveMessage(null), 5000);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -145,6 +214,9 @@ export default function EventsPage() {
           )}
           <button onClick={loadData} disabled={loading} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-5 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50 shadow-sm transition-all">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Reload
+          </button>
+          <button onClick={importFootballEvents} disabled={loading || saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 shadow-sm transition-all">
+            <Download className="w-4 h-4" /> Import Football
           </button>
           <button onClick={saveToGithub} disabled={saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shadow-sm shadow-blue-600/20 transition-all">
             <CloudDownload className="w-4 h-4" /> {saving ? 'Pushing...' : 'Push to GitHub'}
