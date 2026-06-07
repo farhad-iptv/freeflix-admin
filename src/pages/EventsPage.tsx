@@ -517,17 +517,25 @@ export default function EventsPage() {
         <ChannelSelectorModal 
           categories={categories}
           onClose={() => setSelectorStreamIndex(null)}
-          onSelect={(name, url) => {
-            if (editingEvent) {
+          onSelect={(selectedChannels) => {
+            if (editingEvent && selectedChannels.length > 0) {
               const newStreams = [...editingEvent.streams];
+              const firstSelection = selectedChannels[0];
               newStreams[selectorStreamIndex] = {
                 ...newStreams[selectorStreamIndex],
-                name: name,
-                url: url
+                name: firstSelection.name,
+                url: firstSelection.url
               };
+              for (let i = 1; i < selectedChannels.length; i++) {
+                 newStreams.push({
+                    name: selectedChannels[i].name,
+                    url: selectedChannels[i].url,
+                    isPrimary: false
+                 });
+              }
               setEditingEvent({ ...editingEvent, streams: newStreams });
+              setSelectorStreamIndex(null);
             }
-            setSelectorStreamIndex(null);
           }}
         />
       )}
