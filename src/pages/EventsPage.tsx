@@ -21,9 +21,54 @@ export default function EventsPage() {
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [deleteOnImport, setDeleteOnImport] = useState(false);
+  const [autoFindStreams, setAutoFindStreams] = useState(true);
+  const [isImporting, setIsImporting] = useState(false);
   const [importGroups, setImportGroups] = useState<string[]>([]);
   const [selectedImportGroups, setSelectedImportGroups] = useState<string[]>([]);
   const [importRawData, setImportRawData] = useState<any[]>([]);
+  const [autoFindResultModal, setAutoFindResultModal] = useState<{isOpen: boolean, results: {matchName: string, streams: Stream[]}[]} | null>(null);
+  const [interactiveStreamFinder, setInteractiveStreamFinder] = useState<{isOpen: boolean, eventId: string, matchName: string, foundChannels: {name: string, url: string}[], selectedIndices: number[]} | null>(null);
+
+  const fetchAllChannelsFromCategories = async () => {
+    let allChannels: {name: string, url: string}[] = [];
+    await Promise.all(categories.map(async (cat) => {
+      try {
+        const res = await fetch(cat.playlistUrl);
+        const text = await res.text();
+        const lines = text.split('\n');
+        let currentItem: any = null;
+        let currentOptions: any = {};
+        for (const line of lines) {
+          if (line.startsWith('#EXTINF:')) {
+             const nameMatch = line.match(/,(.+)$/);
+             currentItem = { name: nameMatch ? nameMatch[1].trim() : 'Unknown', url: '' };
+          } else if (line.startsWith('#EXTVLCOPT:')) {
+             const optMatch = line.match(/#EXTVLCOPT:([^=]+)=(.*)/);
+             if (optMatch) {
+                const key = optMatch[1].trim();
+                const val = optMatch[2].trim();
+                if (key === 'http-referrer') currentOptions['Referer'] = val;
+                if (key === 'http-origin') currentOptions['Origin'] = val;
+                if (key === 'http-user-agent') currentOptions['User-Agent'] = val;
+             }
+          } else if (line.trim() !== '' && !line.startsWith('#')) {
+             if (currentItem) {
+                let finalUrl = line.trim();
+                if (Object.keys(currentOptions).length > 0) {
+                   const headers = Object.entries(currentOptions).map(([k, v]) => `${k}=${v}`).join('&');
+                   finalUrl += `|${headers}`;
+                }
+                currentItem.url = finalUrl;
+                allChannels.push(currentItem);
+                currentItem = null;
+                currentOptions = {};
+             }
+          }
+        }
+      } catch(e) {}
+    }));
+    return allChannels;
+  };
 
   const formatStartTime = (isoString: string) => {
     if (!isoString) return "";
@@ -182,91 +227,139 @@ export default function EventsPage() {
     }
   };
 
-  const confirmImport = () => {
-    const isAllSports = importRawData.length > 0 && importRawData[0]._isAllSports;
-    
-    let toImport;
-    if (isAllSports) {
-       toImport = importRawData.filter(item => selectedImportGroups.includes(item["league_name"]));
-    } else {
-       toImport = importRawData.filter(item => selectedImportGroups.includes(item["Tour/Group name"]));
-    }
-    
-    const potentialNewEvents = toImport.map((item: any, idx: number) => {
+  const confirmImport = async () => {
+    setIsImporting(true);
+    try {
+      const isAllSports = importRawData.length > 0 && importRawData[0]._isAllSports;
+      
+      let toImport;
       if (isAllSports) {
-        let startTimeStr = "";
-        try {
-           startTimeStr = formatStartTime(new Date(parseInt(item.time)).toISOString());
-        } catch(e) {}
-        
-        const streams = (item.live_links || []).map((l: any, i: number) => ({
-           name: l.link_title || `Stream ${i + 1}`,
-           url: l.channel_url || "",
-           isPrimary: i === 0
-        }));
+         toImport = importRawData.filter(item => selectedImportGroups.includes(item["league_name"]));
+      } else {
+         toImport = importRawData.filter(item => selectedImportGroups.includes(item["Tour/Group name"]));
+      }
+      
+      const potentialNewEvents = toImport.map((item: any, idx: number) => {
+        if (isAllSports) {
+          let startTimeStr = "";
+          try {
+             startTimeStr = formatStartTime(new Date(parseInt(item.time)).toISOString());
+          } catch(e) {}
+          
+          const streams = (item.live_links || []).map((l: any, i: number) => ({
+             name: l.link_title || `Stream ${i + 1}`,
+             url: l.channel_url || "",
+             isPrimary: i === 0
+          }));
 
-        if (streams.length === 0) {
-           streams.push({
+          if (streams.length === 0) {
+             streams.push({
+                name: "Main Stream",
+                url: "https://github.com/farhad-iptv/app-link/raw/refs/heads/main/FREEFLIX-extended.mp4",
+                isPrimary: true
+             });
+          }
+
+          return {
+            id: `imported-${Date.now()}-${idx}`,
+            matchName: `${item.team1_name} vs ${item.team2_name}`,
+            sportType: item.category === "Cricket" ? "Cricket" : "Football",
+            league: item.league_name || "",
+            homeTeamName: item.team1_name || "",
+            homeTeamLogo: item.team1_logo_url || "",
+            awayTeamName: item.team2_name || "",
+            awayTeamLogo: item.team2_logo_url || "",
+            isLive: false,
+            isHot: false,
+            startTime: startTimeStr,
+            link: "",
+            streams: streams
+          };
+        } else {
+          return {
+            id: `imported-${Date.now()}-${idx}`,
+            matchName: item["match name"] || "Unknown Match",
+            sportType: item._defaultSport === "Cricket" ? "Cricket" : "Football",
+            league: item["Tour/Group name"] || "",
+            homeTeamName: item["Team 1 Name"] || "",
+            homeTeamLogo: item["Team 1 Logo"] || "",
+            awayTeamName: item["Team 2 Name"] || "",
+            awayTeamLogo: item["Team 2 Logo"] || "",
+            isLive: item["Status"]?.toLowerCase() === "live" || false,
+            isHot: false,
+            startTime: formatStartTime(item["Start time"] || item["Time"] || item["status"] || ""),
+            link: "",
+            streams: [{
               name: "Main Stream",
               url: "https://github.com/farhad-iptv/app-link/raw/refs/heads/main/FREEFLIX-extended.mp4",
               isPrimary: true
-           });
+            }]
+          };
         }
+      });
 
-        return {
-          id: `imported-${Date.now()}-${idx}`,
-          matchName: `${item.team1_name} vs ${item.team2_name}`,
-          sportType: item.category === "Cricket" ? "Cricket" : "Football",
-          league: item.league_name || "",
-          homeTeamName: item.team1_name || "",
-          homeTeamLogo: item.team1_logo_url || "",
-          awayTeamName: item.team2_name || "",
-          awayTeamLogo: item.team2_logo_url || "",
-          isLive: false,
-          isHot: false,
-          startTime: startTimeStr,
-          link: "",
-          streams: streams
-        };
-      } else {
-        return {
-          id: `imported-${Date.now()}-${idx}`,
-          matchName: item["match name"] || "Unknown Match",
-          sportType: item._defaultSport === "Cricket" ? "Cricket" : "Football",
-          league: item["Tour/Group name"] || "",
-          homeTeamName: item["Team 1 Name"] || "",
-          homeTeamLogo: item["Team 1 Logo"] || "",
-          awayTeamName: item["Team 2 Name"] || "",
-          awayTeamLogo: item["Team 2 Logo"] || "",
-          isLive: item["Status"]?.toLowerCase() === "live" || false,
-          isHot: false,
-          startTime: formatStartTime(item["Start time"] || item["Time"] || item["status"] || ""),
-          link: "",
-          streams: [{
-            name: "Main Stream",
-            url: "https://github.com/farhad-iptv/app-link/raw/refs/heads/main/FREEFLIX-extended.mp4",
-            isPrimary: true
-          }]
-        };
+      if (autoFindStreams) {
+        let allChannels = await fetchAllChannelsFromCategories();
+        let foundResults: {matchName: string, streams: Stream[]}[] = [];
+
+        for (const ev of potentialNewEvents) {
+          const hTeam = ev.homeTeamName.toLowerCase();
+          const aTeam = ev.awayTeamName.toLowerCase();
+          const mName = ev.matchName.toLowerCase();
+          const foundChannels = allChannels.filter(c => {
+             const cname = c.name.toLowerCase();
+             if (mName && cname.includes(mName)) return true;
+             if (hTeam && aTeam && cname.includes(hTeam) && cname.includes(aTeam)) return true;
+             // also match if it's quite specific like "Team A vs Team B"
+             if (hTeam && cname.includes(hTeam) && cname.includes("vs")) return true;
+             return false;
+          });
+
+          if (foundChannels.length > 0) {
+             const newStreams = foundChannels.map((c, i) => ({
+                 name: `Server ${i + 1}`,
+                 url: c.url,
+                 isPrimary: false
+             }));
+             // replace default placeholder if that is the only one
+             if (ev.streams.length === 1 && ev.streams[0].url.includes('FREEFLIX-extended.mp4')) {
+                newStreams[0].isPrimary = true;
+                ev.streams = newStreams;
+             } else {
+                // If it already had multiple valid streams, we might just append. But usually import default is the single FREEFLIX link.
+                // Assuming we just replace the default one:
+                ev.streams = newStreams;
+             }
+             foundResults.push({matchName: ev.matchName, streams: newStreams});
+          }
+        }
+        
+        if (foundResults.length > 0) {
+           setAutoFindResultModal({isOpen: true, results: foundResults});
+        }
       }
-    });
 
-    const actuallyNewEvents = deleteOnImport ? potentialNewEvents : potentialNewEvents.filter(newEv => 
-      !events.some(existingEv => 
-        existingEv.matchName === newEv.matchName && 
-        existingEv.league === newEv.league
-      )
-    );
+      const actuallyNewEvents = deleteOnImport ? potentialNewEvents : potentialNewEvents.filter(newEv => 
+        !events.some(existingEv => 
+          existingEv.matchName === newEv.matchName && 
+          existingEv.league === newEv.league
+        )
+      );
 
-    setEvents(prev => deleteOnImport ? [...actuallyNewEvents] : [...actuallyNewEvents, ...prev]);
-    setIsImportModalOpen(false);
-    
-    if (actuallyNewEvents.length > 0) {
-      setSaveMessage({ type: 'success', text: `Imported ${actuallyNewEvents.length} new events successfully. ${!deleteOnImport ? `(${potentialNewEvents.length - actuallyNewEvents.length} duplicates skipped).` : ''} Click Push to GitHub to save.` });
-    } else {
-      setSaveMessage({ type: 'error', text: `No new events imported. All ${potentialNewEvents.length} selected events already exist.` });
+      setEvents(prev => deleteOnImport ? [...actuallyNewEvents] : [...actuallyNewEvents, ...prev]);
+      setIsImportModalOpen(false);
+      
+      if (actuallyNewEvents.length > 0) {
+        setSaveMessage({ type: 'success', text: `Imported ${actuallyNewEvents.length} new events successfully. ${!deleteOnImport ? `(${potentialNewEvents.length - actuallyNewEvents.length} duplicates skipped).` : ''} Click Push to GitHub to save.` });
+      } else {
+        setSaveMessage({ type: 'error', text: `No new events imported. All ${potentialNewEvents.length} selected events already exist.` });
+      }
+      setTimeout(() => setSaveMessage(null), 5000);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsImporting(false);
     }
-    setTimeout(() => setSaveMessage(null), 5000);
   };
 
   const handleOpenModal = (ev?: Event) => {
@@ -281,6 +374,41 @@ export default function EventsPage() {
       });
     }
     setIsModalOpen(true);
+  };
+
+  const handleAutoFindStreams = async (ev: Event) => {
+    setLoading(true);
+    try {
+      const allChannels = await fetchAllChannelsFromCategories();
+      const hTeam = ev.homeTeamName.toLowerCase();
+      const aTeam = ev.awayTeamName.toLowerCase();
+      const mName = ev.matchName.toLowerCase();
+      
+      const foundChannels = allChannels.filter(c => {
+         const cname = c.name.toLowerCase();
+         if (mName && cname.includes(mName)) return true;
+         if (hTeam && aTeam && cname.includes(hTeam) && cname.includes(aTeam)) return true;
+         if (hTeam && cname.includes(hTeam) && cname.includes("vs")) return true;
+         return false;
+      });
+
+      if (foundChannels.length > 0) {
+         setInteractiveStreamFinder({
+           isOpen: true,
+           eventId: ev.id,
+           matchName: ev.matchName,
+           foundChannels: foundChannels,
+           selectedIndices: foundChannels.map((_, i) => i) // select all by default
+         });
+      } else {
+         setSaveMessage({ type: 'error', text: `No M3U8 links found in playlists for ${ev.matchName}` });
+         setTimeout(() => setSaveMessage(null), 3000);
+      }
+    } catch(e: any) {
+      setError("Auto-find failed: " + e.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDelete = (id: string) => {
@@ -404,6 +532,7 @@ export default function EventsPage() {
                     <td className="px-6 py-4 text-slate-500">{ev.streams.length} stream(s)</td>
                     <td className="px-6 py-4 text-right">
                        <div className="flex justify-end gap-2 transition-opacity">
+                         <button onClick={() => handleAutoFindStreams(ev)} className="p-1.5 text-slate-500 hover:text-purple-600 hover:bg-purple-50 rounded" title="Auto-find m3u8 streams" disabled={loading}><ListVideo className="w-4 h-4"/></button>
                          <button onClick={() => handleOpenModal(ev)} className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded"><Pencil className="w-4 h-4"/></button>
                          <button onClick={() => handleDelete(ev.id)} className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4"/></button>
                        </div>
@@ -449,6 +578,10 @@ export default function EventsPage() {
 
             <div className="flex flex-col gap-4 shrink-0">
                <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer w-fit">
+                  <input type="checkbox" checked={autoFindStreams} onChange={(e) => setAutoFindStreams(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4" />
+                  Auto-find M3U8 streams from Playlists
+               </label>
+               <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer w-fit">
                   <input type="checkbox" checked={deleteOnImport} onChange={(e) => setDeleteOnImport(e.target.checked)} className="rounded text-red-600 focus:ring-red-500 w-4 h-4" />
                   Delete all previously added events
                </label>
@@ -461,8 +594,11 @@ export default function EventsPage() {
                    {importGroups.length === selectedImportGroups.length ? 'Deselect All' : 'Select All'}
                  </button>
                  <div className="flex gap-3">
-                   <button onClick={() => setIsImportModalOpen(false)} className="px-4 py-2 border border-slate-300 text-slate-700 rounded-md hover:bg-slate-50 font-medium">Cancel</button>
-                   <button onClick={confirmImport} disabled={selectedImportGroups.length === 0} className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 font-medium disabled:opacity-50">Confirm ({selectedImportGroups.length})</button>
+                   <button onClick={() => setIsImportModalOpen(false)} disabled={isImporting} className="px-4 py-2 border border-slate-300 text-slate-700 rounded-md hover:bg-slate-50 font-medium disabled:opacity-50">Cancel</button>
+                   <button onClick={confirmImport} disabled={selectedImportGroups.length === 0 || isImporting} className="flex flex-row items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 font-medium disabled:opacity-50">
+                     {isImporting && <RefreshCw className="w-4 h-4 animate-spin" />}
+                     {isImporting ? 'Importing...' : `Confirm (${selectedImportGroups.length})`}
+                   </button>
                  </div>
                </div>
             </div>
@@ -624,6 +760,135 @@ export default function EventsPage() {
           }}
         />
       )}
+
+      {interactiveStreamFinder?.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full max-w-2xl p-6 shadow-xl max-h-[80vh] flex flex-col">
+            <div className="flex justify-between items-center mb-4 shrink-0">
+               <h3 className="font-semibold text-lg">Select Streams to Add</h3>
+               <button onClick={() => setInteractiveStreamFinder(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+            </div>
+            
+            <p className="text-sm text-slate-600 mb-4">Found {interactiveStreamFinder.foundChannels.length} streams for <strong>{interactiveStreamFinder.matchName}</strong>.</p>
+            
+            <div className="overflow-y-auto flex-1 mb-4 border border-slate-200 rounded-lg bg-slate-50 p-2 space-y-2">
+               {interactiveStreamFinder.foundChannels.map((c, idx) => {
+                  const isSelected = interactiveStreamFinder.selectedIndices.includes(idx);
+                  return (
+                     <label key={idx} className={`flex items-center gap-3 p-3 rounded border cursor-pointer transition-colors ${isSelected ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:border-blue-300'}`}>
+                        <div className="flex items-center h-5">
+                          <input 
+                            type="checkbox" 
+                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500" 
+                            checked={isSelected}
+                            onChange={(e) => {
+                               if (e.target.checked) {
+                                  setInteractiveStreamFinder({...interactiveStreamFinder, selectedIndices: [...interactiveStreamFinder.selectedIndices, idx]});
+                               } else {
+                                  setInteractiveStreamFinder({...interactiveStreamFinder, selectedIndices: interactiveStreamFinder.selectedIndices.filter(i => i !== idx)});
+                               }
+                            }}
+                          />
+                        </div>
+                        <div className="flex flex-col overflow-hidden">
+                           <span className="font-medium text-sm text-slate-800">{c.name}</span>
+                           <span className="text-xs text-slate-500 break-all">{c.url}</span>
+                        </div>
+                     </label>
+                  );
+               })}
+            </div>
+            
+            <div className="flex justify-between items-center pt-2">
+               <button 
+                  onClick={() => {
+                     const isAllSelected = interactiveStreamFinder.selectedIndices.length === interactiveStreamFinder.foundChannels.length;
+                     if (isAllSelected) {
+                        setInteractiveStreamFinder({...interactiveStreamFinder, selectedIndices: []});
+                     } else {
+                        setInteractiveStreamFinder({...interactiveStreamFinder, selectedIndices: interactiveStreamFinder.foundChannels.map((_, i) => i)});
+                     }
+                  }}
+                  className="text-sm font-medium text-blue-600 hover:underline"
+               >
+                  {interactiveStreamFinder.selectedIndices.length === interactiveStreamFinder.foundChannels.length ? 'Deselect All' : 'Select All'}
+               </button>
+               <div className="flex gap-3">
+                 <button onClick={() => setInteractiveStreamFinder(null)} className="px-4 py-2 border border-slate-300 rounded-lg font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+                 <button 
+                   disabled={interactiveStreamFinder.selectedIndices.length === 0}
+                   onClick={() => {
+                      const selectedChannels = interactiveStreamFinder.selectedIndices.map(idx => interactiveStreamFinder.foundChannels[idx]);
+                      
+                      setEvents(prev => prev.map(ev => {
+                         if (ev.id === interactiveStreamFinder.eventId) {
+                            const newStreams = selectedChannels.map((c, i) => ({
+                               name: `Server ${i + 1}`,
+                               url: c.url,
+                               isPrimary: i === 0 && ev.streams.length === 0
+                            }));
+                            
+                            // Let's replace if the only stream is the FREEFLIX one
+                            const isFreeFlixOnly = ev.streams.length === 1 && ev.streams[0].url.includes('FREEFLIX-extended.mp4');
+                            
+                            let mergedStreams = [...ev.streams];
+                            if (isFreeFlixOnly) {
+                               newStreams[0].isPrimary = true;
+                               mergedStreams = newStreams;
+                            } else {
+                               mergedStreams.push(...newStreams);
+                            }
+                            
+                            return { ...ev, streams: mergedStreams };
+                         }
+                         return ev;
+                      }));
+                      setInteractiveStreamFinder(null);
+                      setSaveMessage({ type: 'success', text: `Added ${selectedChannels.length} streams to ${interactiveStreamFinder.matchName}` });
+                      setTimeout(() => setSaveMessage(null), 3000);
+                   }} 
+                   className="px-5 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
+                 >
+                   Add {interactiveStreamFinder.selectedIndices.length} Streams
+                 </button>
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {autoFindResultModal?.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl w-full max-w-2xl p-6 shadow-xl max-h-[80vh] flex flex-col">
+            <div className="flex justify-between items-center mb-4 shrink-0">
+               <h3 className="font-semibold text-lg">M3U8 Stream Results</h3>
+               <button onClick={() => setAutoFindResultModal(null)} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5"/></button>
+            </div>
+            <div className="overflow-y-auto flex-1 mb-4 border border-slate-200 rounded-lg bg-slate-50 p-4">
+               {autoFindResultModal.results.map((res, i) => (
+                  <div key={i} className="mb-4 last:mb-0">
+                     <h4 className="font-medium text-slate-800 mb-2">{res.matchName}</h4>
+                     <ul className="space-y-2">
+                        {res.streams.map((s, j) => (
+                           <li key={j} className="text-sm bg-white p-3 rounded border border-slate-200 flex flex-col gap-1">
+                              <span className="font-medium text-blue-700">{s.name}</span>
+                              <span className="text-xs text-slate-500 break-all">{s.url}</span>
+                           </li>
+                        ))}
+                     </ul>
+                  </div>
+               ))}
+               {autoFindResultModal.results.length === 0 && (
+                  <div className="text-center text-slate-500 py-8">No streams found for imported matches.</div>
+               )}
+            </div>
+            <div className="flex justify-end pt-2">
+               <button onClick={() => setAutoFindResultModal(null)} className="px-5 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
