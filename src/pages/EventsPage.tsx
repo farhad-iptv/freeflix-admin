@@ -21,7 +21,6 @@ export default function EventsPage() {
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [deleteOnImport, setDeleteOnImport] = useState(false);
-  const [autoFindStreams, setAutoFindStreams] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
   const [importGroups, setImportGroups] = useState<string[]>([]);
   const [selectedImportGroups, setSelectedImportGroups] = useState<string[]>([]);
@@ -298,47 +297,6 @@ export default function EventsPage() {
         }
       });
 
-      if (autoFindStreams) {
-        let allChannels = await fetchAllChannelsFromCategories();
-        let foundResults: {matchName: string, streams: Stream[]}[] = [];
-
-        for (const ev of potentialNewEvents) {
-          const hTeam = ev.homeTeamName.toLowerCase();
-          const aTeam = ev.awayTeamName.toLowerCase();
-          const mName = ev.matchName.toLowerCase();
-          const foundChannels = allChannels.filter(c => {
-             const cname = c.name.toLowerCase();
-             if (mName && cname.includes(mName)) return true;
-             if (hTeam && aTeam && cname.includes(hTeam) && cname.includes(aTeam)) return true;
-             // also match if it's quite specific like "Team A vs Team B"
-             if (hTeam && cname.includes(hTeam) && cname.includes("vs")) return true;
-             return false;
-          });
-
-          if (foundChannels.length > 0) {
-             const newStreams = foundChannels.map((c, i) => ({
-                 name: `Server ${i + 1}`,
-                 url: c.url,
-                 isPrimary: false
-             }));
-             // replace default placeholder if that is the only one
-             if (ev.streams.length === 1 && ev.streams[0].url.includes('FREEFLIX-extended.mp4')) {
-                newStreams[0].isPrimary = true;
-                ev.streams = newStreams;
-             } else {
-                // If it already had multiple valid streams, we might just append. But usually import default is the single FREEFLIX link.
-                // Assuming we just replace the default one:
-                ev.streams = newStreams;
-             }
-             foundResults.push({matchName: ev.matchName, streams: newStreams});
-          }
-        }
-        
-        if (foundResults.length > 0) {
-           setAutoFindResultModal({isOpen: true, results: foundResults});
-        }
-      }
-
       const actuallyNewEvents = deleteOnImport ? potentialNewEvents : potentialNewEvents.filter(newEv => 
         !events.some(existingEv => 
           existingEv.matchName === newEv.matchName && 
@@ -577,10 +535,6 @@ export default function EventsPage() {
             </div>
 
             <div className="flex flex-col gap-4 shrink-0">
-               <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer w-fit">
-                  <input type="checkbox" checked={autoFindStreams} onChange={(e) => setAutoFindStreams(e.target.checked)} className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4" />
-                  Auto-find M3U8 streams from Playlists
-               </label>
                <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer w-fit">
                   <input type="checkbox" checked={deleteOnImport} onChange={(e) => setDeleteOnImport(e.target.checked)} className="rounded text-red-600 focus:ring-red-500 w-4 h-4" />
                   Delete all previously added events
