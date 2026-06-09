@@ -20,6 +20,7 @@ export default function EventsPage() {
   const [selectorStreamIndex, setSelectorStreamIndex] = useState<number | null>(null);
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [deleteOnImport, setDeleteOnImport] = useState(false);
   const [importGroups, setImportGroups] = useState<string[]>([]);
   const [selectedImportGroups, setSelectedImportGroups] = useState<string[]>([]);
   const [importRawData, setImportRawData] = useState<any[]>([]);
@@ -145,6 +146,7 @@ export default function EventsPage() {
       setImportRawData(matchesData.map((m: any) => ({...m, _defaultSport: typeName})));
       setImportGroups(Array.from(groups).sort());
       setSelectedImportGroups([]);
+      setDeleteOnImport(false);
       setIsImportModalOpen(true);
     } catch (err: any) {
       setError(`Fetch ${typeName} failed: ` + err.message);
@@ -153,41 +155,114 @@ export default function EventsPage() {
     }
   };
 
-  const confirmImport = () => {
-    const toImport = importRawData.filter(item => selectedImportGroups.includes(item["Tour/Group name"]));
-    
-    const potentialNewEvents = toImport.map((item: any, idx: number) => ({
-      id: `imported-${Date.now()}-${idx}`,
-      matchName: item["match name"] || "Unknown Match",
-      sportType: item._defaultSport === "Cricket" ? "Cricket" : "Football",
-      league: item["Tour/Group name"] || "",
-      homeTeamName: item["Team 1 Name"] || "",
-      homeTeamLogo: item["Team 1 Logo"] || "",
-      awayTeamName: item["Team 2 Name"] || "",
-      awayTeamLogo: item["Team 2 Logo"] || "",
-      isLive: item["Status"]?.toLowerCase() === "live" || false,
-      isHot: false,
-      startTime: formatStartTime(item["Start time"] || item["Time"] || item["status"] || ""),
-      link: "",
-      streams: [{
-        name: "Main Stream",
-        url: "https://github.com/farhad-iptv/app-link/raw/refs/heads/main/FREEFLIX-extended.mp4",
-        isPrimary: true
-      }]
-    }));
+  const fetchAllSportsEvents = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('https://raw.githubusercontent.com/nightbirdscompany/4kstreamzdata/refs/heads/main/app/json/livematch.json');
+      if (!res.ok) throw new Error("Failed to fetch external JSON");
+      const data = await res.json();
+      
+      const groups = new Set<string>();
+      data.forEach((m: any) => {
+        if (m["league_name"]) {
+          groups.add(m["league_name"]);
+        }
+      });
+      
+      setImportRawData(data.map((m: any) => ({...m, _isAllSports: true, _defaultSport: m["category"] || "Football"})));
+      setImportGroups(Array.from(groups).sort());
+      setSelectedImportGroups([]);
+      setDeleteOnImport(false);
+      setIsImportModalOpen(true);
+    } catch (err: any) {
+      setError(`Fetch All Sports failed: ` + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    const actuallyNewEvents = potentialNewEvents.filter(newEv => 
+  const confirmImport = () => {
+    const isAllSports = importRawData.length > 0 && importRawData[0]._isAllSports;
+    
+    let toImport;
+    if (isAllSports) {
+       toImport = importRawData.filter(item => selectedImportGroups.includes(item["league_name"]));
+    } else {
+       toImport = importRawData.filter(item => selectedImportGroups.includes(item["Tour/Group name"]));
+    }
+    
+    const potentialNewEvents = toImport.map((item: any, idx: number) => {
+      if (isAllSports) {
+        let startTimeStr = "";
+        try {
+           startTimeStr = formatStartTime(new Date(parseInt(item.time)).toISOString());
+        } catch(e) {}
+        
+        const streams = (item.live_links || []).map((l: any, i: number) => ({
+           name: l.link_title || `Stream ${i + 1}`,
+           url: l.channel_url || "",
+           isPrimary: i === 0
+        }));
+
+        if (streams.length === 0) {
+           streams.push({
+              name: "Main Stream",
+              url: "https://github.com/farhad-iptv/app-link/raw/refs/heads/main/FREEFLIX-extended.mp4",
+              isPrimary: true
+           });
+        }
+
+        return {
+          id: `imported-${Date.now()}-${idx}`,
+          matchName: `${item.team1_name} vs ${item.team2_name}`,
+          sportType: item.category === "Cricket" ? "Cricket" : "Football",
+          league: item.league_name || "",
+          homeTeamName: item.team1_name || "",
+          homeTeamLogo: item.team1_logo_url || "",
+          awayTeamName: item.team2_name || "",
+          awayTeamLogo: item.team2_logo_url || "",
+          isLive: false,
+          isHot: false,
+          startTime: startTimeStr,
+          link: "",
+          streams: streams
+        };
+      } else {
+        return {
+          id: `imported-${Date.now()}-${idx}`,
+          matchName: item["match name"] || "Unknown Match",
+          sportType: item._defaultSport === "Cricket" ? "Cricket" : "Football",
+          league: item["Tour/Group name"] || "",
+          homeTeamName: item["Team 1 Name"] || "",
+          homeTeamLogo: item["Team 1 Logo"] || "",
+          awayTeamName: item["Team 2 Name"] || "",
+          awayTeamLogo: item["Team 2 Logo"] || "",
+          isLive: item["Status"]?.toLowerCase() === "live" || false,
+          isHot: false,
+          startTime: formatStartTime(item["Start time"] || item["Time"] || item["status"] || ""),
+          link: "",
+          streams: [{
+            name: "Main Stream",
+            url: "https://github.com/farhad-iptv/app-link/raw/refs/heads/main/FREEFLIX-extended.mp4",
+            isPrimary: true
+          }]
+        };
+      }
+    });
+
+    const actuallyNewEvents = deleteOnImport ? potentialNewEvents : potentialNewEvents.filter(newEv => 
       !events.some(existingEv => 
         existingEv.matchName === newEv.matchName && 
         existingEv.league === newEv.league
       )
     );
 
-    setEvents(prev => [...actuallyNewEvents, ...prev]);
+    setEvents(prev => deleteOnImport ? [...actuallyNewEvents] : [...actuallyNewEvents, ...prev]);
     setIsImportModalOpen(false);
     
     if (actuallyNewEvents.length > 0) {
-      setSaveMessage({ type: 'success', text: `Imported ${actuallyNewEvents.length} new events successfully. (${potentialNewEvents.length - actuallyNewEvents.length} duplicates skipped). Click Push to GitHub to save.` });
+      setSaveMessage({ type: 'success', text: `Imported ${actuallyNewEvents.length} new events successfully. ${!deleteOnImport ? `(${potentialNewEvents.length - actuallyNewEvents.length} duplicates skipped).` : ''} Click Push to GitHub to save.` });
     } else {
       setSaveMessage({ type: 'error', text: `No new events imported. All ${potentialNewEvents.length} selected events already exist.` });
     }
@@ -272,6 +347,9 @@ export default function EventsPage() {
           </button>
           <button onClick={() => fetchJSONEvents('https://raw.githubusercontent.com/farhad-iptv/crichd-event-scraper/refs/heads/main/matches.json', 'Cricket')} disabled={loading || saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 shadow-sm transition-all whitespace-nowrap">
             <Download className="w-4 h-4" /> Cricket
+          </button>
+          <button onClick={fetchAllSportsEvents} disabled={loading || saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-4 py-2.5 bg-purple-600 text-white rounded-xl text-sm font-medium hover:bg-purple-700 disabled:opacity-50 shadow-sm transition-all whitespace-nowrap">
+            <Download className="w-4 h-4" /> All Sports
           </button>
           <button onClick={saveToGithub} disabled={saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shadow-sm shadow-blue-600/20 transition-all whitespace-nowrap">
             <CloudDownload className="w-4 h-4" /> {saving ? 'Pushing...' : 'Push to GitHub'}
@@ -363,22 +441,29 @@ export default function EventsPage() {
                   />
                   <span className="text-sm font-medium text-slate-700">{group}</span>
                   <span className="ml-auto text-xs text-slate-400">
-                     {importRawData.filter(m => m["Tour/Group name"] === group).length} matches
+                     {importRawData.filter(m => m["Tour/Group name"] === group || m["league_name"] === group).length} matches
                   </span>
                 </label>
               ))}
             </div>
 
-            <div className="flex justify-between items-center shrink-0">
-               <button 
-                  onClick={() => setSelectedImportGroups(importGroups.length === selectedImportGroups.length ? [] : [...importGroups])}
-                  className="text-sm text-blue-600 font-medium hover:underline cursor-pointer"
-               >
-                 {importGroups.length === selectedImportGroups.length ? 'Deselect All' : 'Select All'}
-               </button>
-               <div className="flex gap-3">
-                 <button onClick={() => setIsImportModalOpen(false)} className="px-4 py-2 border border-slate-300 text-slate-700 rounded-md hover:bg-slate-50 font-medium">Cancel</button>
-                 <button onClick={confirmImport} disabled={selectedImportGroups.length === 0} className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 font-medium disabled:opacity-50">Confirm ({selectedImportGroups.length})</button>
+            <div className="flex flex-col gap-4 shrink-0">
+               <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer w-fit">
+                  <input type="checkbox" checked={deleteOnImport} onChange={(e) => setDeleteOnImport(e.target.checked)} className="rounded text-red-600 focus:ring-red-500 w-4 h-4" />
+                  Delete all previously added events
+               </label>
+               
+               <div className="flex justify-between items-center">
+                 <button 
+                    onClick={() => setSelectedImportGroups(importGroups.length === selectedImportGroups.length ? [] : [...importGroups])}
+                    className="text-sm text-blue-600 font-medium hover:underline cursor-pointer"
+                 >
+                   {importGroups.length === selectedImportGroups.length ? 'Deselect All' : 'Select All'}
+                 </button>
+                 <div className="flex gap-3">
+                   <button onClick={() => setIsImportModalOpen(false)} className="px-4 py-2 border border-slate-300 text-slate-700 rounded-md hover:bg-slate-50 font-medium">Cancel</button>
+                   <button onClick={confirmImport} disabled={selectedImportGroups.length === 0} className="px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 font-medium disabled:opacity-50">Confirm ({selectedImportGroups.length})</button>
+                 </div>
                </div>
             </div>
           </div>
