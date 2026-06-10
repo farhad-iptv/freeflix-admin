@@ -26,10 +26,10 @@ export default function EventsPage() {
   const [selectedImportGroups, setSelectedImportGroups] = useState<string[]>([]);
   const [importRawData, setImportRawData] = useState<any[]>([]);
   const [autoFindResultModal, setAutoFindResultModal] = useState<{isOpen: boolean, results: {matchName: string, streams: Stream[]}[]} | null>(null);
-  const [interactiveStreamFinder, setInteractiveStreamFinder] = useState<{isOpen: boolean, eventId: string, matchName: string, foundChannels: {name: string, url: string}[], selectedIndices: number[]} | null>(null);
+  const [interactiveStreamFinder, setInteractiveStreamFinder] = useState<{isOpen: boolean, eventId: string, matchName: string, foundChannels: {name: string, url: string, category?: string}[], selectedIndices: number[]} | null>(null);
 
   const fetchAllChannelsFromCategories = async () => {
-    let allChannels: {name: string, url: string}[] = [];
+    let allChannels: {name: string, url: string, category: string}[] = [];
     await Promise.all(categories.map(async (cat) => {
       try {
         const res = await fetch(cat.playlistUrl);
@@ -40,7 +40,7 @@ export default function EventsPage() {
         for (const line of lines) {
           if (line.startsWith('#EXTINF:')) {
              const nameMatch = line.match(/,(.+)$/);
-             currentItem = { name: nameMatch ? nameMatch[1].trim() : 'Unknown', url: '' };
+             currentItem = { name: nameMatch ? nameMatch[1].trim() : 'Unknown', url: '', category: cat.name };
           } else if (line.startsWith('#EXTVLCOPT:')) {
              const optMatch = line.match(/#EXTVLCOPT:([^=]+)=(.*)/);
              if (optMatch) {
@@ -50,13 +50,34 @@ export default function EventsPage() {
                 if (key === 'http-origin') currentOptions['Origin'] = val;
                 if (key === 'http-user-agent') currentOptions['User-Agent'] = val;
              }
+          } else if (line.startsWith('#KODIPROP:')) {
+             const propMatch = line.match(/#KODIPROP:([^=]+)=(.*)/);
+             if (propMatch) {
+                 const key = propMatch[1].trim();
+                 const val = propMatch[2].trim();
+                 if (key === 'inputstream.adaptive.license_type') currentOptions['drmScheme'] = val;
+                 if (key === 'inputstream.adaptive.license_key') currentOptions['drmLicense'] = val;
+             }
           } else if (line.trim() !== '' && !line.startsWith('#')) {
              if (currentItem) {
                 let finalUrl = line.trim();
-                if (Object.keys(currentOptions).length > 0) {
-                   const headers = Object.entries(currentOptions).map(([k, v]) => `${k}=${v}`).join('&');
-                   finalUrl += `|${headers}`;
+                let params = [];
+                let headers = [];
+                
+                if (currentOptions['drmScheme']) params.push(`drmScheme=${currentOptions['drmScheme']}`);
+                if (currentOptions['drmLicense']) params.push(`drmLicense=${currentOptions['drmLicense']}`);
+                
+                if (currentOptions['Referer']) headers.push(`Referer=${currentOptions['Referer']}`);
+                if (currentOptions['Origin']) headers.push(`Origin=${currentOptions['Origin']}`);
+                if (currentOptions['User-Agent']) headers.push(`User-Agent=${currentOptions['User-Agent']}`);
+
+                if (params.length > 0) {
+                    finalUrl += `?|${params.join('&')}`;
+                    if (headers.length > 0) finalUrl += `|${headers.join('&')}`;
+                } else if (headers.length > 0) {
+                    finalUrl += `|${headers.join('&')}`;
                 }
+                
                 currentItem.url = finalUrl;
                 allChannels.push(currentItem);
                 currentItem = null;
@@ -342,13 +363,15 @@ export default function EventsPage() {
       const aTeam = ev.awayTeamName.toLowerCase();
       const mName = ev.matchName.toLowerCase();
       
-      const foundChannels = allChannels.filter(c => {
+      const matchChannels = allChannels.filter(c => {
          const cname = c.name.toLowerCase();
          if (mName && cname.includes(mName)) return true;
          if (hTeam && aTeam && cname.includes(hTeam) && cname.includes(aTeam)) return true;
          if (hTeam && cname.includes(hTeam) && cname.includes("vs")) return true;
          return false;
       });
+
+      const foundChannels = matchChannels.filter((v, i, a) => a.findIndex(t => (t.url === v.url)) === i);
 
       if (foundChannels.length > 0) {
          setInteractiveStreamFinder({
@@ -745,7 +768,7 @@ export default function EventsPage() {
                           />
                         </div>
                         <div className="flex flex-col overflow-hidden">
-                           <span className="font-medium text-sm text-slate-800">{c.name}</span>
+                           <span className="font-medium text-sm text-slate-800">{c.name} {c.category ? `- [${c.category}]` : ''}</span>
                            <span className="text-xs text-slate-500 break-all">{c.url}</span>
                         </div>
                      </label>
@@ -777,7 +800,7 @@ export default function EventsPage() {
                       setEvents(prev => prev.map(ev => {
                          if (ev.id === interactiveStreamFinder.eventId) {
                             const newStreams = selectedChannels.map((c, i) => ({
-                               name: `Server ${i + 1}`,
+                               name: `Server ${i + 1} (${c.category || 'Unknown'})`,
                                url: c.url,
                                isPrimary: i === 0 && ev.streams.length === 0
                             }));
