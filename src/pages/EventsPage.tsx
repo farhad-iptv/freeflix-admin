@@ -94,11 +94,16 @@ export default function EventsPage() {
     if (!isoString) return "";
     
     // Avoid double-parsing local formats which causes month and day to swap
-    if (isoString.includes('/') || /^\d{2}:\d{2} (AM|PM) \d{2}\/\d{2}\/\d{4}$/.test(isoString)) {
+    if (/^\d{2}:\d{2} (AM|PM) \d{2}\/\d{2}\/\d{4}$/.test(isoString)) {
         return isoString;
     }
 
-    const date = new Date(isoString);
+    let parsedString = isoString;
+    if (parsedString.includes('+0000')) {
+        parsedString = parsedString.replace(/\//g, '-').replace(' +0000', 'Z').replace(' ', 'T');
+    }
+
+    const date = new Date(parsedString);
     if (isNaN(date.getTime())) return isoString;
 
     let hours = date.getHours();
@@ -147,6 +152,78 @@ export default function EventsPage() {
   useEffect(() => {
     loadData();
   }, [settings]);
+
+  useEffect(() => {
+     if (categories.length === 0) return;
+     
+     const interval = setInterval(() => {
+         fetchAllChannelsFromCategories().then(allChannels => {
+             if (allChannels.length === 0) return;
+             
+             setEvents(prevEvents => {
+                 let changed = false;
+                 const newEvents = prevEvents.map(ev => {
+                    const isOnlyPlaceholder = ev.streams.length === 1 && ev.streams[0].url.includes('FREEFLIX-extended.mp4');
+                    const hasNoStreams = ev.streams.length === 0;
+                    if (!isOnlyPlaceholder && !hasNoStreams) return ev;
+          
+                    let isTime = ev.isLive;
+                    if (!isTime && ev.startTime) {
+                        const match = ev.startTime.match(/(\d{2}):(\d{2}) (AM|PM) (\d{2})\/(\d{2})\/(\d{4})/);
+                        if (match) {
+                            let [_, h, m, ampm, D, M, Y] = match;
+                            let hr = parseInt(h);
+                            if (ampm === 'PM' && hr < 12) hr += 12;
+                            if (ampm === 'AM' && hr === 12) hr = 0;
+                            const timeMs = new Date(parseInt(Y), parseInt(M)-1, parseInt(D), hr, parseInt(m)).getTime();
+                            if (timeMs > 0) {
+                               const diffMins = (timeMs - Date.now()) / 60000;
+                               if (diffMins <= 10 && diffMins >= -180) {
+                                   isTime = true;
+                               }
+                            }
+                        }
+                    }
+                    if (!isTime) return ev;
+
+                    const hTeam = ev.homeTeamName.toLowerCase();
+                    const aTeam = ev.awayTeamName.toLowerCase();
+                    const mName = ev.matchName.toLowerCase();
+          
+                    const matchChannels = allChannels.filter(c => {
+                       const cname = c.name.toLowerCase();
+                       if (mName && cname.includes(mName)) return true;
+                       if (hTeam && aTeam && cname.includes(hTeam) && cname.includes(aTeam)) return true;
+                       if (hTeam && cname.includes(hTeam) && cname.includes("vs")) return true;
+                       return false;
+                    });
+          
+                    const foundChannels = matchChannels.filter((v, i, a) => a.findIndex(t => (t.url === v.url)) === i);
+                    
+                    if (foundChannels.length > 0) {
+                        changed = true;
+                        const newStreams = foundChannels.map((c, i) => ({
+                           name: `Server ${i + 1} (${c.category || 'Unknown'})`,
+                           url: c.url,
+                           isPrimary: i === 0
+                        }));
+                        return { ...ev, streams: newStreams };
+                    }
+                    return ev;
+                 });
+                 
+                 if (changed) {
+                     setSaveMessage({ type: 'success', text: "Auto-fetched streaming links for live events" });
+                     setTimeout(() => setSaveMessage(null), 3000);
+                     return newEvents;
+                 }
+                 return prevEvents;
+             });
+         });
+     }, 60000); // 1 minute
+     
+     return () => clearInterval(interval);
+  }, [categories]);
 
   const parseTime = (timeStr: string) => {
     if (!timeStr) return 0;
@@ -247,14 +324,44 @@ export default function EventsPage() {
     }
   };
 
+  const fetchSportzXEvents = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('https://noisy-mountain-8f1a.mominulislamm3u8.workers.dev/events-streams');
+      if (!res.ok) throw new Error("Failed to fetch SportzX JSON");
+      const data = await res.json();
+      
+      const groups = new Set<string>();
+      data.forEach((m: any) => {
+        if (m.cat) {
+          groups.add(m.cat);
+        }
+      });
+      
+      setImportRawData(data.map((m: any) => ({...m, _isSportzX: true, _defaultSport: m.cat || "Football"})));
+      setImportGroups(Array.from(groups).sort());
+      setSelectedImportGroups([]);
+      setDeleteOnImport(false);
+      setIsImportModalOpen(true);
+    } catch (err: any) {
+      setError(`Fetch SportzX failed: ` + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const confirmImport = async () => {
     setIsImporting(true);
     try {
       const isAllSports = importRawData.length > 0 && importRawData[0]._isAllSports;
+      const isSportzX = importRawData.length > 0 && importRawData[0]._isSportzX;
       
       let toImport;
       if (isAllSports) {
          toImport = importRawData.filter(item => selectedImportGroups.includes(item["league_name"]));
+      } else if (isSportzX) {
+         toImport = importRawData.filter(item => selectedImportGroups.includes(item.cat));
       } else {
          toImport = importRawData.filter(item => selectedImportGroups.includes(item["Tour/Group name"]));
       }
@@ -291,6 +398,68 @@ export default function EventsPage() {
             awayTeamLogo: item.team2_logo_url || "",
             isLive: false,
             isHot: false,
+            startTime: startTimeStr,
+            link: "",
+            streams: streams
+          };
+        } else if (isSportzX) {
+          const info = item.eventInfo || {};
+          let startTimeStr = "";
+          try {
+             if (info.startTime) {
+                 startTimeStr = formatStartTime(info.startTime);
+             }
+          } catch(e) {}
+          
+          const streams = (item.streamUrls || []).map((l: any, i: number) => {
+             let url = l.link || l.streamUrl || "";
+             let params = [];
+             if (l.api) params.push(`drmScheme=clearkey&drmLicense=${l.api}`);
+             
+             let headersStr = "";
+             if (l.headers) {
+                 const headersMap = [];
+                 for (const [k, v] of Object.entries(l.headers)) {
+                     headersMap.push(`${k}=${v}`);
+                 }
+                 if (headersMap.length > 0) {
+                     headersStr = headersMap.join('&');
+                 }
+             }
+
+             if (params.length > 0) {
+                 url += `?|${params.join('&')}`;
+                 if (headersStr) url += `|${headersStr}`;
+             } else if (headersStr) {
+                 url += `|${headersStr}`;
+             }
+
+             return {
+                 name: l.title || `Stream ${i + 1}`,
+                 url: url,
+                 isPrimary: i === 0
+             };
+          });
+
+          if (streams.length === 0) {
+             streams.push({
+                name: "Main Stream",
+                url: "https://github.com/farhad-iptv/app-link/raw/refs/heads/main/FREEFLIX-extended.mp4",
+                isPrimary: true
+             });
+          }
+
+          return {
+            id: `imported-${Date.now()}-${idx}`,
+            matchName: info.eventName || item.title || "Unknown Match",
+            sportType: item._defaultSport === "Cricket" || item._defaultSport === "Football" ? item._defaultSport : "All Sports",
+            league: item.cat || "",
+            homeTeamName: info.teamA || "",
+            homeTeamLogo: info.teamAFlag || "",
+            awayTeamName: info.teamB || "",
+            awayTeamLogo: info.teamBFlag || "",
+            isLive: info.isHot === "1",
+            isHot: info.isHot === "1",
             startTime: startTimeStr,
             link: "",
             streams: streams
@@ -460,6 +629,9 @@ export default function EventsPage() {
           <button onClick={fetchAllSportsEvents} disabled={loading || saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-4 py-2.5 bg-purple-600 text-white rounded-xl text-sm font-medium hover:bg-purple-700 disabled:opacity-50 shadow-sm transition-all whitespace-nowrap">
             <Download className="w-4 h-4" /> All Sports
           </button>
+          <button onClick={fetchSportzXEvents} disabled={loading || saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-4 py-2.5 bg-rose-600 text-white rounded-xl text-sm font-medium hover:bg-rose-700 disabled:opacity-50 shadow-sm transition-all whitespace-nowrap">
+            <Download className="w-4 h-4" /> SportzX
+          </button>
           <button onClick={saveToGithub} disabled={saving} className="flex-1 md:flex-none justify-center flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 shadow-sm shadow-blue-600/20 transition-all whitespace-nowrap">
             <CloudDownload className="w-4 h-4" /> {saving ? 'Pushing...' : 'Push to GitHub'}
           </button>
@@ -551,7 +723,7 @@ export default function EventsPage() {
                   />
                   <span className="text-sm font-medium text-slate-700">{group}</span>
                   <span className="ml-auto text-xs text-slate-400">
-                     {importRawData.filter(m => m["Tour/Group name"] === group || m["league_name"] === group).length} matches
+                     {importRawData.filter(m => m["Tour/Group name"] === group || m["league_name"] === group || m.cat === group).length} matches
                   </span>
                 </label>
               ))}
